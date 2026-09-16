@@ -13,12 +13,14 @@ def check(email:str,code:str):
 
 
 class CreateUser(BaseModel):
-    email: str = Field(..., title="用户邮箱"),
-    username:str=Field(...,title="用户名"),
-    password: str = Field(..., title="用户密码"),
+    email: str = Field(..., title="用户邮箱")
+    username:str=Field(...,title="用户名")
+    password: str = Field(..., title="用户密码")
+    token: str = Field(..., title="验证码验证通过后返回的注册token")
 @register_router.post('/creat')
 def create(CreateUser: CreateUser):
     email = CreateUser.email
     username = CreateUser.username
     password=CreateUser.password
-    return RegisterService.create(email,username,password)
+    token=CreateUser.token
+    return RegisterService.create(email,username,password,token)

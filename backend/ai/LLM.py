@@ -7,7 +7,7 @@ def load_model():
     #指定基础服务地址 --- 阿里公司提供的模型访问地址
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     #指定模型名称
-    model="qwen3.6-flash",
+    model="qwen3.8-flash",
     #流式输出
     streaming=True,
     )

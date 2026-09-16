@@ -1,138 +1,58 @@
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate
-
-from ai import LLM,LoadEmbeddingModel,LoadRerankerModel
-from langchain_chroma import Chroma
-from Chat.utils import BM25Util, RRFUtil, IntentionUtil
-from langchain_core.runnables import RunnableParallel,RunnablePassthrough,RunnableLambda
+from Common.Tools import retrieve,get_weather,query_neo4j
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, AIMessageChunk
+from langchain.agents import create_agent
+from Common.Loading import loader
 from Chat.dao import MenuDao
-from pathlib import Path
-def chat(question,historyId):
-    if historyId==0:
-        history=[]
-    else:
-        history = MenuDao.history_dao(historyId)["data"]
-    ollamallm=IntentionUtil.intention_recogntion(question)
+def chat(question,historyId,email):
+    history_message = []
+    if historyId != 0:
+        summaries = MenuDao.summary_history(historyId, email)
+        recent = MenuDao.history_dao2(historyId, email)["data"]
+        history_message = []
+        for i in summaries:
+            history_message.append(SystemMessage(content=f"历史对话摘要:{i["compress"]}"))
+        for item in recent:
+            if item.get("role") == "user":
+                history_message.append(HumanMessage(content=item["content"]))
+            elif item.get("role") == "assistant":
+                history_message.append(AIMessage(content=item["content"]))
+    agent = create_agent(
+        # llm
+        model=loader.llm,
+        # 系统提示词：告诉agent如何工作
+        system_prompt="""
+          你是一个智能助手，请严格遵循以下规则响应用户请求：
 
-    print(ollamallm)
-    # 加载回答模型
-    llm = LLM.load_model()
-    if ollamallm :
-        related=ollamallm["related"]
+           ## 工具调用规则
+           1. **天气查询**：当用户询问天气、气温、湿度、风力等气象信息时，必须调用 `get_weather` 工具获取实时数据，禁止凭记忆回答。
+           2. **法律知识查询**：当用户询问法律法规、司法解释、合同条款、法律程序等纯法律问题时，必须调用 `retrieve` 工具（related="law"）从法律条文库检索原文，禁止凭记忆回答或自行解读。
+           3. **医疗健康查询**：当用户咨询疾病、症状、用药、诊疗建议、医学概念等健康问题时，必须按顺序连续调用两个工具：
+           - 第一步：调用 `retrieve`（related="medical"）从医患问答库获取参考性问答；
+           - 第二步：调用 `query_neo4j` 从医学知识图谱获取实体关系、病理机制、药物相互作用等结构化知识。
+            两步均完成后，方可整合结果回复。禁止仅调用其中一个工具，禁止调换调用顺序。
+           4. **其他问题**：若用户问题不涉及上述三类场景，直接基于自身知识生成准确、简洁的回复，无需调用任何工具。
 
-        #提示词
-        Prompt="""
-                你是一个基于知识库的AI助手。请严格根据参考资料回答用户问题。
+           ## 重要约束
+           - 医疗场景必须完成 retrieve(medical) + query_neo4j 两次调用，缺一不可；天气和法律场景仅调用对应单个工具。
+           - 每次响应中工具调用总数不超过2次，且仅在医疗场景下允许达到2次。
+           - 禁止在医疗场景中调用 retrieve(law)，禁止在法律场景中调用 retrieve(medical) 或 query_neo4j。各知识库内容完全隔离，无交叉数据。
+           - 工具返回结果后，需结合原始问题进行自然语言整合，不得直接输出原始文本片段或图数据库原始三元组。
+           - 回复医疗内容时，必须包含免责声明："以下为参考性信息，不构成诊疗建议，具体请遵医嘱。"
+           - 引用法律条文时应忠实原文，禁止概括改写导致语义偏差；禁止编造法条编号、药品批准号等出处标识。
+           - 若任一工具调用失败或无匹配结果，如实告知用户缺失部分的信息，并给出替代建议（如调整提问方式、咨询专业机构），不得虚构内容填补空白。
+               """,
+        # 工具列表
+        tools=[get_weather, query_neo4j, retrieve],
+    )
 
-                【回答规则】
-                1. 仅使用参考资料中的信息作答，禁止使用任何外部知识或自行补充建议。
-                2. 参考资料充足时：直接提炼关键答案，语言自然简洁，不要冗长解释。
-                3. 参考资料不足或无关时：仅回复"当前知识库中暂未找到相关信息，建议您换个方式描述问题，或咨询相关专业人士。"，不要猜测，不要给出任何建议或替代方案。
-                4. 涉及法律问题时：在回答末尾另起一行添加"⚖️ 以上内容仅供参考，不构成法律意见，具体请咨询专业律师。"
-                5. 涉及医疗/健康问题时：在回答末尾另起一行添加"🏥 以上内容仅供参考，不构成医疗建议或诊断，如有不适请及时就医。"
-                6. 若同一问题同时涉及法律和医疗，则两条声明均需添加。
-                
-                【禁止事项】
-                - 禁止提及"参考资料""检索内容""知识库""提供的信息"等字眼，不要描述你的检索过程或资料内容。
-                - 禁止输出"根据……""基于……""资料显示……"等引导语。
-                - 禁止在信息不足时自行补充建议、方案或引导用户采取其他行动。
-                - 禁止修改、省略或改写上述法律和医疗免责声明的措辞，必须原文完整输出。
-                - 禁止在非法律/非医疗类回答中添加任何免责声明。
-                
-                【历史记录】
-                {history}
-                
-                【参考资料】
-                {context}
-                
-                【用户问题】
-                {question}
-                
-                【回答】
-            """
-        #创建提示词对象
-        prompt=PromptTemplate(
-            template=Prompt,
-            input_variables=["history","context","question"]
-        )
-        #创建检索器对象
-        vector_db=Chroma(
-            collection_name=related,
-            persist_directory=str(Path(__file__).parents[2] / "Database" / "Chroma"),
-            embedding_function=LoadEmbeddingModel.embedding_model,
-
-        )
-
-        vector_retriever=vector_db.as_retriever(search_kwargs={"k":10})
-        # 打印召回结果
-        def print_recall(title, docs):
-            print(f"{title}到的文档内容")
-            for doc in docs:
-                print(doc.page_content)
-            return docs
-        def retriever_func(question):
-            #向量检索
-            vector_result =vector_retriever.invoke(question)
-            print_recall("向量检索", vector_result)
-            #BM25检索
-            bm25,docs=BM25Util.build_bm25_index(vector_db)
-            bm25_result=BM25Util.bm25_search(bm25,question,docs,10)
-            print_recall("BM25检索",bm25_result)
-            #rrf融合
-            rrf_result=RRFUtil.rrf(vector_result,bm25_result)
-            print_recall("RRF融合",rrf_result)
-            return rrf_result
-
-        #加载重排序模型
-        reranker=LoadRerankerModel.load_reranker_model()
-        def reranker_func(data):
-            print("开始重排序")
-            history=data['history']
-            docs=data['context']
-            question=data['question']
-            queire=[(question,doc.page_content) for doc in docs]
-
-            scores=reranker.compute_score(queire)
-            results=list(zip(docs,scores))
-            #降序
-            results.sort(key=lambda x:x[1],reverse=True)
-            docs_3=[doc.page_content for doc,score in results[:3]]
-            context="\n\n".join(f"来源{i+1}:{text}"for i,text in enumerate(docs_3))
-            print(f"重排序后：{context}")
-            return{
-               'history':history,
-                'context':context,
-                'question':question,
-            }
-        #构造链
-        qa_chain=(
-            RunnableParallel({
-                "history": RunnableLambda(lambda _:history),
-                "context": RunnableLambda(lambda _:retriever_func(question)),
-                "question":RunnablePassthrough(),
-
-            }
-
-
-            )
-            | RunnableLambda(reranker_func)
-            | prompt
-            | llm
-            |StrOutputParser()
-
-        )
-
-        for chunk in qa_chain.stream(question):
-            if hasattr(chunk,'content'):
-                yield chunk.content
-            else:
-                yield chunk
-    else:
-        history.append(question)
-        for chunk in llm.stream(history):
-            if chunk.content:
-                yield chunk.content
-        return
+    # stream_mode="messages"：产出 (AIMessageChunk, metadata) 元组，每个 chunk 是真正的 token 增量
+    for msg_chunk, _metadata in agent.stream(
+            {"messages": history_message + [HumanMessage(content=question)]},
+            stream_mode="messages",
+    ):
+        # 只输出模型最终回答的文本增量；工具调用参数/工具结果会自动被过滤（content 为空或非 AIMessageChunk）
+        if isinstance(msg_chunk, AIMessageChunk) and msg_chunk.content:
+            yield msg_chunk.content
 
 if __name__ == '__main__':
     question="我发烧了怎么办"

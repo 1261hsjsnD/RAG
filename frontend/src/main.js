@@ -27,6 +27,18 @@ axios.interceptors.request.use(config => {
     }
     return config;
 });
+// axios 响应拦截器：401（token 过期/失效）统一清理并跳回登录页
+axios.interceptors.response.use(
+    response => response,
+    error => {
+        if (error.response && error.response.status === 401) {
+            sessionStorage.clear();
+            ElMessage.warning("登录已过期，请重新登录");
+            router.push('/');
+        }
+        return Promise.reject(error);
+    }
+);
 //未登录拦截
 router.beforeEach((to,from,next)=>{
     //next是否放行

@@ -9,9 +9,6 @@ def check(email):
     cur.close()
     conn.close()
     return result
-def register(email):
-    conn=RedisUtil.get_redis_client()
-    cur=conn.cursor()
 
 if __name__ == '__main__':
     email='844282963@qq.com'

@@ -8,7 +8,7 @@ admin_router = APIRouter()
 def updata(permission:str,user: dict = Depends(JwtUtil.get_current_user)):
     if user.get("permission") != "admin":
         raise HTTPException(status_code=403, detail="无管理员权限")
-    return AdminService.updata(permission)
+    return AdminService.updata()
 @admin_router.get("/delete")
 def delete(email:str,user: dict = Depends(JwtUtil.get_current_user)):
     if user.get("permission") != "admin":

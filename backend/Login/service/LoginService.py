@@ -6,8 +6,11 @@ def login(email,password):
     SQL='select password,username,email,permission from users where email=%s'
     cursor.execute(SQL,[email])
     result=cursor.fetchall()
+    cursor.close()
+    conn.close()
     if result:
         word=result[0]['password']
+        #生成jwtID做黑名单处理，
         if JwtUtil.verify_password(password,word):
             token = JwtUtil.create_access_token({
             "email":result[0]['email'],
@@ -22,10 +25,15 @@ def login(email,password):
                 "username":result[0]['username'],
                 "permission": result[0]['permission']
             }
+        else:
+            return {
+                "code": 400,
+                "msg": "密码错误"
+            }
     else:
         return{
-            "code":400,
-            "msg":"请检查输入"
+            "code":404,
+            "msg":"请检查邮箱"
         }
 
 if __name__ == '__main__':

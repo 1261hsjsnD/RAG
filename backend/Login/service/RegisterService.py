@@ -14,7 +14,7 @@ def register(email:str):
         #配置信息
         sender= os.getenv("SENDER_EMAIL")
         psw=os.getenv("SENDER_EMAIL_PASSWORD")
-        subject="注册验证码码请接收"
+        subject="注册验证码请接收"
         #随机验证码
         code=""
         for i in range(4):
@@ -52,7 +52,6 @@ def register(email:str):
             return{
                 "code":200,
                 "msg":"发送成功",
-                "data":code,
                 "email":email,
 
 
@@ -76,19 +75,42 @@ def register(email:str):
 def check_email(email,code):
     r = RedisUtil.get_redis_client()
     if r.get(email)==None:
+        r.close()
         return{"code":404,
             "msg":"验证码已过期"}
     else:
         True_code=r.get(email)
         if code ==True_code:
+            #封装token只让通过验证的邮箱可以注册
+            token=JwtUtil.generate_token(email)
+            #验证码使用完毕立即删除
+            r.delete(email)
+            r.close()
             return{"code":200,
                 "msg":"验证成功",
-
+                "token":token,
             }
         else:
+            r.close()
             return {"code":500,"msg":"验证码错误"}
 #创建
-def create(email,username,password):
+def create(email,username,password,token):
+    #1.校验注册token，防止未验证邮箱直接注册
+    try:
+        payload=JwtUtil.verify_token(token)
+    except Exception:
+        return{"code":401,"msg":"token已过期或错误，请重新验证"}
+    #2.token里的邮箱必须与本次注册邮箱一致
+    if payload.get("email")!=email:
+        return{"code":401,"msg":"邮箱与验证邮箱不一致，请重新验证"}
+    #3.token必须未被使用（一次性），防止重放
+    r = RedisUtil.get_redis_client()
+    if r.exists(token)!=1:
+        r.close()
+        return{"code":401,"msg":"验证已失效，请重新验证"}
+    r.close()
+    #4.销毁token，注册token只能使用一次
+    JwtUtil.delete_token(token)
     #包装密码
     password= JwtUtil.hash_password(password)
     try:

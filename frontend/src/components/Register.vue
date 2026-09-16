@@ -121,6 +121,8 @@ let b=ref(false)
 let c =ref (false)
 const username = ref('')
 const password = ref('')
+//验证通过后后端返回的注册token，完成注册时必须携带
+const token = ref('')
 function SendEmail(){
 
   proxy.$axios({
@@ -162,6 +164,8 @@ function CheckEmail(){
       ElMessage.error(msg)
     }else if (code===200){
       ElMessage.success(msg)
+      //保存注册token，完成注册时必须携带
+      token.value = res.data.token
     }else if (code===500){
       ElMessage.error(msg)
     }
@@ -176,6 +180,7 @@ function CreatEmail(){
       email:email.value,
       username:username.value,
       password:password.value,
+      token: token.value,
     }
   }).then(res=>{
     let code =res.data.code
@@ -185,6 +190,9 @@ function CreatEmail(){
       sessionStorage.setItem("username",username.value);
       sessionStorage.setItem("email",email.value);
       setTimeout(()=>{router.push("/");},1000)}
+    else if (code===401){
+      ElMessage.error(msg)
+    }
     else if (code===500){
       ElMessage.error(msg)
     }

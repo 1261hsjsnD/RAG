@@ -23,11 +23,13 @@ def verify_password(password:str, hashed_password:str) -> bool:
 
 
 # 生成token---data:用户封装进的数据类容格式字典
-def create_access_token(data: dict) -> str:
+def create_access_token(data: dict, expire_minutes: Optional[int] = None) -> str:
     # 拷贝
     copy_data = data.copy()
     # 设置过期时间
-    expire = datetime.now(timezone.utc) + timedelta(minutes=int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES')))
+    if expire_minutes is None:
+        expire_minutes = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES'))
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
     # 添加过期时间
     copy_data.update({'exp': expire, "iat": datetime.now(timezone.utc)})
     '''
@@ -41,10 +43,20 @@ def create_access_token(data: dict) -> str:
         algorithm=os.getenv('ALGORITHM')  # 算法
     )
     r=RedisUtil.get_redis_client()
-    r.set(jwt_result,"1", ex=int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES')) * 60)
+    r.set(jwt_result,"1", ex=expire_minutes * 60)
     r.close()
 
     return jwt_result
+
+# 生成注册验证token---email:通过验证码验证的邮箱（默认10分钟有效）
+def generate_token(email: str, expire_minutes: int = 10) -> str:
+    return create_access_token({"email": email}, expire_minutes=expire_minutes)
+
+# 删除token---注册完成后一次性销毁，防止被再次使用
+def delete_token(token: str) -> None:
+    r = RedisUtil.get_redis_client()
+    r.delete(token)
+    r.close()
 
 #验证方法解密
 def verify_token(token:str)->dict:
@@ -63,6 +75,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/login")
 def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> dict:
     payload = verify_token(token)
     r = RedisUtil.get_redis_client()
-    if r.exists(token) != 1:
+    a=r.exists(token)
+    r.close()
+    if a != 1:
         raise HTTPException(401, "登录已失效，请重新登录")
     return payload

@@ -250,7 +250,11 @@ async function chat() {
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       ElMessage.error(err.detail || `请求失败：${resp.status}`);
-      if (resp.status === 401) router.push('/');  // token 失效则回到登录页
+      if (resp.status === 401) {
+        sessionStorage.clear();
+        ElMessage.warning("登录已过期，请重新登录");
+        router.push('/');  // token 失效则回到登录页
+      }
       messages.value[messages.value.length - 1].content = "请求失败，请重试";
       return;
     }

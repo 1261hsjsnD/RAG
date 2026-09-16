@@ -1,6 +1,6 @@
 from Admin.dao import AdminDao
 
-def updata(permission):
+def updata():
     return AdminDao.updata()
 
 

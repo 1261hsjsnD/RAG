@@ -1,6 +1,5 @@
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
-from ai import LoadChroma
 import jieba
 import pickle
 import os
@@ -93,7 +92,9 @@ def bm25_search(bm25, question, docs, k=10):
 
 
 if __name__ == '__main__':
-    vector_db = LoadChroma.load_chrome_conn()
+    # 惰性导入，避免与 Loading.py 顶部互相导入造成循环依赖
+    from Common.Loading import loader
+    vector_db = loader.chroma
     bm25, docs = build_bm25_index(vector_db)
     result = bm25_search(bm25, "在医院打人了怎么办", docs)
     print(result)
